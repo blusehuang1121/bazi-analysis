@@ -6,27 +6,49 @@
 
 ## 安装
 
-### Claude Code
-
 直接告诉 Claude Code：
 
 ```
 请帮我安装 github.com/blusehuang1121/bazi-analysis 中的 Skills
 ```
 
-### 命令行运行排盘脚本
+## 使用
 
-```bash
-pip install lunar_python
-python scripts/bazi_chart.py -d "1983-11-21 03:30" -g 男 -l 岳阳
-python scripts/bazi_chart.py --help    # 查看完整参数
+安装好之后，把命主信息直接发给 Claude，会自动触发八章分析。
+
+**方式一：完整出生信息**
+
+```
+1990年3月15日 14:30，北京，男
+```
+
+```
+帮我看个八字：1983年11月21日 03:30 岳阳 男
+```
+
+**方式二：直接给排好的八字**
+
+```
+乾造：庚午、戊寅、丙子、辛卯，35岁，男
+```
+
+**方式三：贴一张八字截图**
+
+直接把图片发过去即可。
+
+**补充信息（可选）**
+
+发命主信息时可以一起说当前关注的面向，分析会据此调整侧重：
+
+```
+1985年7月25日 23:30 长沙 女，最近想看下今年的运势和事业
 ```
 
 ## 文件结构
 
 ```
 ├── SKILL.md                       # 主入口
-├── scripts/bazi_chart.py          # 排盘脚本（含经度时差 + 均时差校正）
+├── scripts/bazi_chart.py          # 排盘脚本
 └── references/
     ├── methodology.md             # 六步内部推理流程
     ├── output_structure.md        # 各章节详细格式
