@@ -146,7 +146,10 @@ def main():
         longitude_correction = (lng - 120) * 4
         location_used = f"{location}（经度 {lng}°E）"
     elif location:
-        location_used = f"{location}（不在内置表中，仅应用均时差）"
+        location_used = (
+            f"{location}（⚠️ 不在内置表中，经度时差未校正，仅应用了均时差。"
+            f"建议查询该地经度后用 --longitude 重跑）"
+        )
     else:
         # 没有任何位置信息时，连均时差都不应用
         eot_correction = 0.0
