@@ -60,29 +60,34 @@ with zipfile.ZipFile('bazi-analysis.skill', 'w', zipfile.ZIP_DEFLATED) as zf:
 "
 ```
 
-### 直接运行排盘脚本
-
-修改 `scripts/bazi_chart.py` 顶部的配置区：
-
-```python
-YEAR = 1990
-MONTH = 1
-DAY = 1
-HOUR = 12
-MINUTE = 0
-GENDER = '男'      # '男' 或 '女'
-LOCATION = '北京'  # 出生城市
-LONGITUDE = None   # 也可直接指定经度
-```
-
-然后：
+### 直接运行排盘脚本（命令行传参，无需改代码）
 
 ```bash
 pip install lunar_python
-python scripts/bazi_chart.py
+
+# 基本用法
+python scripts/bazi_chart.py -d "1983-11-21 03:30" -g 男 -l 岳阳
+
+# 直接指定经度（优先级高于 -l）
+python scripts/bazi_chart.py -d "1990-03-15 14:30" -g 女 --longitude 121.5
+
+# 不指定出生地 → 使用北京时间，不做校正
+python scripts/bazi_chart.py -d "1990-03-15 14:30" -g 男
+
+# 查看帮助
+python scripts/bazi_chart.py --help
 ```
 
-输出 markdown 格式的排盘结果。
+**参数：**
+
+| 参数 | 必填 | 说明 |
+|---|---|---|
+| `-d / --datetime` | ✓ | 出生日期时间，格式 `"YYYY-MM-DD HH:MM"`（北京时间） |
+| `-g / --gender` | ✓ | 性别，`男` 或 `女` |
+| `-l / --location` |  | 出生城市（中文）。不在内置表中时仅应用均时差 |
+| `--longitude` |  | 出生地经度（度），优先级高于 `--location` |
+
+输出 markdown 格式的排盘结果（基本信息、四柱八字、五行分布、大运排布、当前位置）。
 
 ## 真太阳时算法说明
 
