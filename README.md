@@ -57,4 +57,4 @@
 
 ## License
 
-私人使用。
+[MIT](LICENSE)
