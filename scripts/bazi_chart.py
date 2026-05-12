@@ -567,6 +567,188 @@ def main():
         if yt_gan in _GAN_KE.get(yun_gan, set()):
             signals.append(f'🔵流年剋大运干({yt_gan}剋{yun_gan})')
 
+        # ===== P 级 内驱型（仅在非 S 级时触发） =====
+        # 命理逻辑：内部能量过度堆积/激活 → 主动外溢突破
+        # 三条触发条件，任意 2 条同时成立 → P 级
+        is_s_level = any('🔥' in s for s in signals)
+        if not is_s_level:
+            p_conditions = []
+
+            # 条件 1：内部能量激活（A 档：3 现及以上）
+            # A 档判定（任一成立即触发）：
+            #   1. 原局多重伏吟：流年天干/地支在原局已现 ≥ 2 次（原局双现+流年=3现及以上）
+            #   2. 三现伏吟：流年天干/地支 = 大运同位字 + 原局已现 ≥ 1 次（原局+大运+流年=3现）
+            #   3. 自刑动：流年地支为自刑字 + 原局有同字
+            # B/C 档（岁运并临、单干/单支同字）—— 暂不进 P 级触发，作独立信号或不输出
+            yuanju_zhi_list = [z for _, _, z in yuan_ju]
+            yuanju_gan_list = [year_gz[0], month_gz[0], day_gz[0], time_gz[0]]
+            same_zhi_in_yuanju = yuanju_zhi_list.count(yt_zhi)
+            same_gan_in_yuanju = yuanju_gan_list.count(yt_gan)
+            self_punish_zhi = ('亥', '辰', '午', '酉')
+
+            if same_zhi_in_yuanju >= 2:
+                # 原局多重伏吟（地支）
+                p_conditions.append(f'多重伏吟({yt_zhi}地支原局{same_zhi_in_yuanju}现+流年={same_zhi_in_yuanju + 1}现)')
+            elif same_gan_in_yuanju >= 2:
+                # 原局多重伏吟（天干）
+                p_conditions.append(f'多重伏吟({yt_gan}天干原局{same_gan_in_yuanju}现+流年={same_gan_in_yuanju + 1}现)')
+            elif yun_zhi == yt_zhi and same_zhi_in_yuanju >= 1:
+                # 三现伏吟（原局+大运+流年地支同字）
+                p_conditions.append(f'三现伏吟({yt_zhi}地支:原局+大运+流年)')
+            elif yun_gan == yt_gan and same_gan_in_yuanju >= 1:
+                # 三现伏吟（原局+大运+流年天干同字）
+                p_conditions.append(f'三现伏吟({yt_gan}天干:原局+大运+流年)')
+            elif yt_zhi in self_punish_zhi and same_zhi_in_yuanju >= 1:
+                p_conditions.append(f'自刑动({yt_zhi}{yt_zhi})')
+
+            # 条件 2：食伤透干（"体"的外溢——自我能量主动外显）
+            # 盲派"体用"重构：只有食伤、印、比劫属"体"，财、官、杀属"用"
+            # 食伤透干 = 体（自我创造力/表达力）主动外溢 → P 级
+            # 财星透干 → 单独标"P-财事"，不进 P 触发（"用"进来）
+            # 官杀透干 → S 复核路径（外部压力）
+            shang_shi_for_cond2 = ('伤官', '食神')
+            if yt_shishen in shang_shi_for_cond2:
+                p_conditions.append(f'食伤透干({yt_gan})')
+
+            # 条件 3：食伤被合引动（自我表达/创造力被点燃）
+            # - 子条件 3A：流年地支与原局食伤位形成六合
+            # - 子条件 3B：流年地支与原局某地支形成三合拱合，且拱出的中心字属食伤五行
+            shang_shi_set = ('伤官', '食神')
+            shang_shi_triggered = False
+
+            # 3A：六合引动食伤位
+            for pos, gan, zhi in yuan_ju:
+                has_shang_shi = (ss(gan) in shang_shi_set)
+                if not has_shang_shi:
+                    cg_list = ZHI_CANGGAN.get(zhi, [])
+                    if cg_list and ss(cg_list[0]) in shang_shi_set:
+                        has_shang_shi = True
+                if has_shang_shi and (yt_zhi, zhi) in _LIUHE_PAIRS:
+                    p_conditions.append(f'食伤被六合引动({pos}支{zhi}-{yt_zhi}合)')
+                    shang_shi_triggered = True
+                    break
+
+            # 3B：三合局拱合 — 拱出食伤五行
+            if not shang_shi_triggered:
+                # 日主 → 食伤五行
+                day_to_shang_wuxing = {
+                    '甲': '火', '乙': '火',
+                    '丙': '土', '丁': '土',
+                    '戊': '金', '己': '金',
+                    '庚': '水', '辛': '水',
+                    '壬': '木', '癸': '木',
+                }
+                # 三合局：每个五行对应（两个非中心字 + 中心字）
+                sanhe_groups = {
+                    '水': ('申', '辰', '子'),
+                    '火': ('寅', '戌', '午'),
+                    '木': ('亥', '未', '卯'),
+                    '金': ('巳', '丑', '酉'),
+                }
+                ss_wx = day_to_shang_wuxing.get(day_gz[0])
+                if ss_wx and ss_wx in sanhe_groups:
+                    o1, o2, _ = sanhe_groups[ss_wx]
+                    pair_match = None
+                    if yt_zhi == o1:
+                        for pos, _, zhi in yuan_ju:
+                            if zhi == o2:
+                                pair_match = (pos, zhi)
+                                break
+                    elif yt_zhi == o2:
+                        for pos, _, zhi in yuan_ju:
+                            if zhi == o1:
+                                pair_match = (pos, zhi)
+                                break
+                    if pair_match:
+                        p_conditions.append(
+                            f'食伤被拱合引动({pair_match[0]}支{pair_match[1]}-{yt_zhi}拱{ss_wx})'
+                        )
+
+            # P 级判定 — 排除"双重七杀压制"情形（流年七杀+大运七杀=压制型，内驱难显化）
+            p_excluded = (yt_shishen == '七杀' and ss(yun_gan) == '七杀')
+            if len(p_conditions) >= 2 and not p_excluded:
+                signals.append(f'✨P级内驱型({"+".join(p_conditions)})')
+
+        # ===== 盲派"用进来"信号（独立于 P/S 主判定）=====
+        # 财星 / 官杀透干属于"用"（外部能量进来），按盲派应分别处理：
+        # 财星透干 → P-财事独立标签（不进 P 触发，但标识财事年）
+        # 官杀透干 → S 复核（七杀重，正官轻），看制化结构
+        guansha_set_check = ('正官', '七杀')
+        cai_set_check = ('正财', '偏财')
+
+        if yt_shishen in cai_set_check:
+            # 财星透干 = "用"进来 — 默认 P-财事，特殊情况转 S 复核（暂未实现）
+            signals.append(f'💰P-财事({yt_shishen}{yt_gan}透干,"用"显化)')
+
+        if yt_shishen in guansha_set_check:
+            # 官杀透干 = 外部压力进来，进 S 复核路径
+            # 复核：原局或大运是否有食伤制 / 印化（盲派粗判）
+            yuanju_gan = [year_gz[0], month_gz[0], day_gz[0], time_gz[0]]
+            yuanju_zhi_for_check = [z for _, _, z in yuan_ju]
+            shang_shi_check = ('伤官', '食神')
+            yin_set = ('正印', '偏印')
+
+            # 食伤是否存在（原局明字 / 大运透 / 食伤本气藏支）
+            has_food_god = (
+                any(ss(g) in shang_shi_check for g in yuanju_gan)
+                or ss(yun_gan) in shang_shi_check
+                or any(ZHI_CANGGAN.get(z, ['', ''])[0] and ss(ZHI_CANGGAN[z][0]) in shang_shi_check
+                       for z in yuanju_zhi_for_check)
+            )
+            # 印星是否存在
+            has_yin = (
+                any(ss(g) in yin_set for g in yuanju_gan)
+                or ss(yun_gan) in yin_set
+                or any(ZHI_CANGGAN.get(z, ['', ''])[0] and ss(ZHI_CANGGAN[z][0]) in yin_set
+                       for z in yuanju_zhi_for_check)
+            )
+
+            heaviness = '重' if yt_shishen == '七杀' else '轻'
+            if has_food_god or has_yin:
+                control_note = []
+                if has_food_god:
+                    control_note.append('食伤制')
+                if has_yin:
+                    control_note.append('印化')
+                signals.append(
+                    f'⚠️S复核-{heaviness}({yt_shishen}{yt_gan}透+有{"/".join(control_note)},盲派粗判)'
+                )
+            else:
+                signals.append(
+                    f'⚠️S复核-{heaviness}!!({yt_shishen}{yt_gan}透+无制无化,需人工身能任杀判定)'
+                )
+
+        # ===== 岁运并临独立标识 =====
+        # 流年干支完全等于大运干支 → 强应期，按原局共字情况分档
+        if yt_gan == yun_gan and yt_zhi == yun_zhi:
+            yuanju_zhi_yj = [z for _, _, z in yuan_ju]
+            yuanju_gan_yj = [year_gz[0], month_gz[0], day_gz[0], time_gz[0]]
+            same_zhi_in_yj = yuanju_zhi_yj.count(yt_zhi)
+            same_gan_in_yj = yuanju_gan_yj.count(yt_gan)
+
+            # 整柱三叠：原局有同柱（同干同支）
+            full_pillar_match = None
+            pillar_names = ['年柱', '月柱', '日柱', '时柱']
+            for i, (g, z) in enumerate(zip(yuanju_gan_yj, yuanju_zhi_yj)):
+                if g == yt_gan and z == yt_zhi:
+                    full_pillar_match = pillar_names[i]
+                    break
+
+            if full_pillar_match:
+                if full_pillar_match == '日柱':
+                    signals.append(f'⚡岁运并临-A+({yt_gan}{yt_zhi}日柱三叠,自身/婚姻宫/身体应期,必须人工复核)')
+                else:
+                    signals.append(f'⚡岁运并临-A+({yt_gan}{yt_zhi}整柱三叠于{full_pillar_match})')
+            elif same_zhi_in_yj >= 1 or same_gan_in_yj >= 1:
+                same_parts = []
+                if same_gan_in_yj >= 1:
+                    same_parts.append(f'{yt_gan}天干{same_gan_in_yj}现')
+                if same_zhi_in_yj >= 1:
+                    same_parts.append(f'{yt_zhi}地支{same_zhi_in_yj}现')
+                signals.append(f'⚡岁运并临-A({yt_gan}{yt_zhi}+原局[{",".join(same_parts)}])')
+            else:
+                signals.append(f'⚡岁运并临-B+({yt_gan}{yt_zhi}+原局无同字)')
+
         return signals
 
     # ============ 生成完整流年表 ============
@@ -674,8 +856,12 @@ def main():
     # ---- 流年作用关系完整表 ----
     print("## 流年作用关系完整表（从起运到 80 岁）")
     print()
-    print("说明（信号分五档，按强度从高到低）：")
-    print("- 🔥 S级 极高危/强应期：配偶星损 + 夫妻宫动 + 岁运同时触发")
+    print("说明（信号分级，按强度从高到低）：")
+    print("- 🔥 S级 外触型强应期：外部能量场对原局形成压力（比劫剋财 + 配偶星损 + 夫妻宫动）。主体感受是\"事情找上门来\"。")
+    print("- ✨ P级 内驱型强应期：盲派\"体\"（食伤/比劫/印）的主动外溢（多重伏吟/三现 + 食伤透干 + 食伤被合 三选二）。主体感受是\"我想这么干\"。")
+    print("- ⚠️ S复核 官杀透干：盲派\"用\"进来——七杀重 / 正官轻；附带制化判定（有食伤制 or 印化 = 降档）")
+    print("- ⚡ 岁运并临：流年干支=大运干支。B+ 单纯并临 / A 原局有同字 / A+ 整柱三叠（日柱三叠必须人工复核）")
+    print("- 💰 P-财事：财星透干独立标签（盲派属\"用\"但应在财务/资源/男命妻星）")
     print("- 🔴 A级 高危：配偶星或夫妻宫被严重冲克（闭环未完整）")
     print("- 🟠 B级 警示：有动象，但未形成完整风险闭环")
     print("- 🟡 C级 辅助：可辅助解释，不单独定吉凶（七杀被合、流年合大运干等多在此档）")
@@ -698,6 +884,101 @@ def main():
 
     print()
     print("**符号说明**：✓ 已过年份  ● 当年  ○ 未来年份  ★ 大运起始年")
+    print()
+
+    # ---- S 级 / P 级年份单独汇总表 ----
+    s_rows = [r for r in liunian_table if any('🔥' in s for s in r['signals'])]
+    p_rows = [r for r in liunian_table if any('✨' in s for s in r['signals'])]
+
+    print("## 🔥 S 级年份汇总（外触型 · 强能量节点 · 多面向应事）")
+    print()
+    print("**关键说明**：")
+    print()
+    print("- **S 级 = 外触型**。能量来源在原局之外——流年/大运的字对原局形成剋、冲、合。主体感受是\"**事情找上门来，我得应对**\"。")
+    print("- **S 级 ≠ 危机预警**。信号可正可负，取决于命主当时所在大运的能量场和经营状态——")
+    print("  - 印运+S 级 → 倾向\"被托起、获得机会、关系建立\"（如升学、贵人、感情）")
+    print("  - 七杀运+S 级 → 倾向\"被外部倒逼、合伙重组、责任承担\"")
+    print("- **应事面向多元**：脚本判定逻辑虽以\"配偶星损 + 夫妻宫动\"命名，**实际应事面向远不止婚姻**——可能是合伙关系、客户/资源、朋友间财务、健康/根基、搬家/生活方式重大调整、自我认知调整、家庭事件等，通常 3-5 个面向同时被触发。")
+    print("- **底层判定结构**：比劫剋财 + 配偶星损 + 日支动 三条同时成立")
+    print()
+    def life_stage_facets(age_n):
+        """根据年龄段返回该 S 级年份最有可能的多面向应事提示。"""
+        if age_n <= 13:
+            return "家庭变动 / 父母关系 / 健康事件 / 学业转折 / 搬家转学"
+        elif age_n <= 17:
+            return "学业重大节点 / 家庭关系 / 心理认知变化 / 健康 / 早期情感"
+        elif age_n <= 25:
+            return "升学/就业转折 / 感情初体验 / 家庭经济 / 自我定位 / 重要离开或加入"
+        elif age_n <= 35:
+            return "婚恋重大决定 / 工作变动 / 合伙创业 / 买房搬家 / 父母关系调整 / 子女节点"
+        elif age_n <= 50:
+            return "事业重大节点 / 合伙股权调整 / 客户/资源结构变动 / 健康节点 / 家庭关系 / 子女"
+        elif age_n <= 65:
+            return "事业转型 / 子女重大事件 / 父母健康 / 健康/根基调整 / 自我定位重整"
+        else:
+            return "健康节点 / 子女家庭 / 财产安排 / 生活方式重大调整 / 自我接纳"
+
+    current_year_num = today.year
+    if not s_rows:
+        print("（本盘从起运到 80 岁无 S 级年份）")
+    else:
+        print("| 年份 | 岁 | 多面向应事提示（按年龄段） | 流年 | 大运 |")
+        print("|---|---|---|---|---|")
+        for row in s_rows:
+            y = row['year']
+            facets = life_stage_facets(row['age'])
+            print(f"| {y} | {row['age']} | {facets} | {row['gz']} | {row['yun']} |")
+        print()
+        past_s = [r for r in s_rows if r['year'] < current_year_num]
+        future_s = [r for r in s_rows if r['year'] > current_year_num]
+        print(f"**统计**：过往 S 级年份 {len(past_s)} 个 / 未来 S 级年份 {len(future_s)} 个")
+        print()
+        print("**说明**：")
+        print("- \"多面向应事提示\"是基于命主该年所处年龄段给出的典型应事方向，并非预测——")
+        print("  S 级年份的能量结构在不同生命阶段会优先表现在不同面向上。")
+        print("- 触发结构对所有 S 级都是\"比劫剋财 + 财弱 + 夫妻宫动\"三条同时成立，不区分年份，故省略。")
+        print()
+        print("**校准建议**：拿过往 S 级年份与命主对照——是否对应\"强度大、变化大、触动大\"的事件（不限面向）。")
+        print("命中率高 → 算法对此盘适用度高；命中率低 → 核对时辰精度。")
+
+    # ---- P 级年份汇总表 ----
+    print()
+    print("## ✨ P 级年份汇总（内驱型 · 主动突破节点 · 自我能量外溢）")
+    print()
+    print("**关键说明**：")
+    print()
+    print("- **P 级 = 内驱型**。能量来源在原局自身——多重伏吟/自刑（内部能量堆积）+ 财官透干（外显机会）+ 食伤被合引动（自我能力被点燃）。主体感受是\"**我想这么干，我感觉到自己的力量**\"。")
+    print("- **P 级倾向于主动突破型应事**：主动争取机会、主动开启新阶段、主动做出关键决定。与 S 级的\"被推动响应\"互补。")
+    print("- **应事典型形态**：主动争取/拿下机会、技能跃迁、专业突破、创业启动、主动转换跑道、个人作品/创作产出、自我认知重整。")
+    print("- **底层判定结构（盲派\"体用\"重构后）**：以下三条任意 2 条同时成立 + 非 S 级 + 不满足排除条件")
+    print("  1. **内部能量激活（A 档）**：以下任一成立 →")
+    print("     a. 原局多重伏吟（流年天干/地支在原局已 ≥2 现）→ 总计 ≥3 现")
+    print("     b. 三现伏吟（流年 = 大运同位字 + 原局已 ≥1 现）→ 原局+大运+流年三现")
+    print("     c. 自刑动（流年地支为自刑字 + 原局有同字）")
+    print("  2. **食伤透干**（盲派\"体\"的外溢——自我表达/创造力主动激活）")
+    print("     注：财星透干 → 已剥离为 💰P-财事 独立标识（\"用\"进来）")
+    print("     注：官杀透干 → 已剥离为 ⚠️S复核 独立信号（外部压力）")
+    print("  3. **食伤被合引动**：流年与原局食伤位六合 OR 三合局拱出食伤五行（拱合也算引动）")
+    print("- **排除条件**：流年七杀 + 大运七杀 → 双重压制（已由 ⚠️S复核 系统处理）")
+    print("- **岁运并临**作为独立强节点（⚡ 标识），不进 P 级判定")
+    print()
+    if not p_rows:
+        print("（本盘从起运到 80 岁无 P 级年份）")
+    else:
+        print("| 年份 | 岁 | 多面向应事提示（按年龄段） | 流年 | 大运 |")
+        print("|---|---|---|---|---|")
+        for row in p_rows:
+            facets = life_stage_facets(row['age'])
+            print(f"| {row['year']} | {row['age']} | {facets} | {row['gz']} | {row['yun']} |")
+        print()
+        past_p = [r for r in p_rows if r['year'] < current_year_num]
+        future_p = [r for r in p_rows if r['year'] > current_year_num]
+        print(f"**统计**：过往 P 级年份 {len(past_p)} 个 / 未来 P 级年份 {len(future_p)} 个")
+        print()
+        print("**S/P 综合校准建议**：")
+        print("- 同时拿过往 S 级和 P 级与命主对照——")
+        print("- S 级（外触）对应\"事情找上门\"的强应期；P 级（内驱）对应\"自己主动出击\"的突破年")
+        print("- 两者性质互补，共同构成命局的\"强能量年份地图\"")
 
 
 if __name__ == '__main__':
