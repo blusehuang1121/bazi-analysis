@@ -27,6 +27,13 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, date
 
+# Windows 终端默认 GBK/cp936，输出 emoji 与部分汉字会崩（UnicodeEncodeError）。
+# 强制 stdout 用 UTF-8，保证脚本在任何 codepage 下都能正常输出 markdown。
+try:
+    sys.stdout.reconfigure(encoding='utf-8')
+except (AttributeError, ValueError):
+    pass
+
 
 def ensure_lunar_python():
     try:
@@ -215,6 +222,256 @@ def check_sanxing(zhi_list):
     return sanxing_found
 
 
+# ============ 时辰反推（--verify-events）支持函数 ============
+# 命主反馈过往确认事件 → 反查每个候选时柱在那些年是否产生了对应面向的应期信号
+# → 应期对得最齐的时柱最可能是真时辰。打分逻辑对应 references/blind_imagery.md 的"信号↔面向反查表"。
+# 只用模块级原语，独立于 main() 里的 detect_key_signals，零侵入。
+
+_DOMAIN_ALIASES = {
+    'marriage': ['婚', '感情', '恋', '配偶', '老婆', '老公', '对象', '结婚', '离婚', '分手'],
+    'career':   ['事业', '工作', '升职', '升迁', '跳槽', '换工作', '创业', '职', '事业变动', '失业'],
+    'wealth':   ['财', '钱', '破财', '进财', '投资', '收入', '生意', '亏'],
+    'study':    ['学业', '升学', '考试', '读书', '考证', '毕业', '学历', '上学'],
+    'health':   ['健康', '病', '手术', '住院', '身体', '伤', '车祸', '意外'],
+    'move':     ['搬', '迁', '换城市', '移民', '远行', '出国', '调动'],
+    'children': ['子女', '生子', '孩子', '怀孕', '生育', '产子', '添丁', '生孩'],
+    'family':   ['家庭', '父母', '父亲', '母亲', '长辈', '家里', '爸', '妈'],
+}
+_DOMAIN_NAMES = {
+    'marriage': '婚恋', 'career': '事业', 'wealth': '财', 'study': '学业',
+    'health': '健康', 'move': '搬迁', 'children': '子女', 'family': '家庭',
+}
+# 对定时辰有区分力的面向（依赖时支，时支随时辰变）
+_TIME_SENSITIVE_DOMAINS = {'children'}
+
+
+def normalize_domain(label):
+    """把命主反馈的自由文本面向标签归一到内部 domain key。"""
+    for key, aliases in _DOMAIN_ALIASES.items():
+        for a in aliases:
+            if a in label:
+                return key
+    return None
+
+
+def hour_pillar_candidates(day_gan):
+    """根据日干用五鼠遁推出 12 个候选时柱（子时起，依次子丑寅…亥）。"""
+    zi_gan = WUSHUDUN[day_gan]
+    zi_idx = _GAN10.index(zi_gan)
+    return [_GAN10[(zi_idx + i) % 10] + zhi for i, zhi in enumerate(_ZHI12)]
+
+
+def _zhi_rel_types(a, b):
+    """返回 a、b 两支之间的关系类型集合：冲/合/半合/拱/害/刑/自刑/伏吟。"""
+    types = set()
+    for r in check_zhi_relation(a, b):
+        for t in ('冲', '半合', '拱', '自刑', '伏吟', '合', '害', '刑'):
+            if t in r:
+                types.add(t)
+    return types
+
+
+def score_events(day_gz, year_gz, month_gz, time_gz, is_male, events):
+    """对一个候选盘给确认事件打"应期对齐分"。
+    events: [(year:int, domain_key:str)]
+    返回 (total, details, time_contributed)。
+    time_contributed: 时支是否在某事件里实际贡献了得分（衡量该批证据对定时辰是否有区分力）。"""
+    sst = SST_TABLE[day_gz[0]]
+    ss = lambda g: sst.get(g, '?')
+    year_zhi, month_zhi, day_zhi, time_zhi = year_gz[1], month_gz[1], day_gz[1], time_gz[1]
+    gans = [year_gz[0], month_gz[0], day_gz[0], time_gz[0]]
+    zhis_named = [('年支', year_zhi), ('月支', month_zhi), ('日支', day_zhi), ('时支', time_zhi)]
+
+    cai = ('正财', '偏财'); guansha = ('正官', '七杀'); yin = ('正印', '偏印')
+    bijie = ('比肩', '劫财'); shishang = ('食神', '伤官')
+    has_cai = (any(ss(g) in cai for g in gans)
+               or any(any(ss(cg) in cai for cg in ZHI_CANGGAN.get(z, [])) for _, z in zhis_named))
+    spouse = cai if is_male else guansha
+    child = guansha if is_male else shishang
+    ma = ('寅', '申', '巳', '亥')
+
+    total = 0
+    details = []
+    time_contributed = False
+    for (yr, dom) in events:
+        gz = year_to_ganzhi(yr)
+        lg, lz = gz[0], gz[1]
+        sl = ss(lg)
+        best = 0
+        note = ''
+        used_time = False
+        rel = lambda z: _zhi_rel_types(lz, z)
+
+        if dom == 'marriage':
+            r = rel(day_zhi)
+            if r & {'冲', '合', '刑', '害', '伏吟'}:
+                best, note = 3, f'流年{lz}动日支{day_zhi}({"/".join(r)})'
+            for g in gans:
+                if ss(g) in spouse and (lg, g) in _TIANGAN_HE:
+                    best = max(best, 2); note = note or f'配偶星{g}被流年{lg}合'
+            if sl in spouse:
+                best = max(best, 2); note = note or f'流年透配偶星{sl}'
+            if '半合' in r:
+                best = max(best, 1)
+        elif dom == 'career':
+            if sl in guansha:
+                best, note = 3, f'流年透{sl}'
+            if rel(month_zhi) & {'冲', '合', '刑'}:
+                best = max(best, 2); note = note or f'流年{lz}动月支{month_zhi}'
+            if sl == '伤官':
+                best = max(best, 2); note = note or '流年透伤官(事业动)'
+            if sl in ('食神',) + cai:
+                best = max(best, 1)
+        elif dom == 'wealth':
+            if sl in cai:
+                best, note = 3, f'流年透财{sl}'
+            if sl in bijie and has_cai:
+                best = max(best, 3); note = note or '流年透比劫+原局有财(动财)'
+            for nm, z in zhis_named:
+                zc = ZHI_CANGGAN.get(z, [])
+                if zc and ss(zc[0]) in cai and (rel(z) & {'冲', '合'}):
+                    best = max(best, 2); note = note or f'流年动{nm}财星'
+        elif dom == 'study':
+            if sl in yin:
+                best, note = 3, f'流年透印{sl}'
+            if rel(month_zhi) & {'合', '半合'}:
+                best = max(best, 2); note = note or '流年合月支'
+            if sl in shishang:
+                best = max(best, 1)
+        elif dom == 'health':
+            if '冲' in rel(day_zhi):
+                best, note = 3, f'流年{lz}冲日支{day_zhi}'
+            sx = check_sanxing([lz, year_zhi, month_zhi, day_zhi, time_zhi])
+            joined = ''.join(sx)
+            if sx and (day_zhi in joined or year_zhi in joined):
+                best = max(best, 2); note = note or '三刑动身宫'
+            if day_gz[0] in _GAN_KE.get(lg, set()):
+                best = max(best, 2); note = note or f'流年{lg}剋日主'
+            if '冲' in rel(year_zhi):
+                best = max(best, 1)
+        elif dom == 'move':
+            moved = False
+            for nm, z in (('年支', year_zhi), ('月支', month_zhi), ('日支', day_zhi)):
+                if '冲' in rel(z):
+                    if lz in ma or z in ma:
+                        best, note, moved = 3, f'驿马动:流年{lz}冲{nm}{z}', True
+                    else:
+                        best = max(best, 2); note = note or f'流年{lz}冲{nm}{z}'; moved = True
+            if not moved and any(rel(z) & {'冲', '刑'} for _, z in zhis_named):
+                best = max(best, 1)
+        elif dom == 'children':
+            r = rel(time_zhi)
+            if r & {'冲', '合', '刑', '害', '伏吟'}:
+                best, note, used_time = 3, f'流年{lz}动时支{time_zhi}({"/".join(r)})', True
+            if sl in child:
+                best = max(best, 2); note = note or f'流年透子女星{sl}'
+            if '半合' in r:
+                best = max(best, 1); used_time = True
+        elif dom == 'family':
+            hit = False
+            for nm, z in (('年支', year_zhi), ('月支', month_zhi)):
+                if rel(z) & {'冲', '合', '刑'}:
+                    best, note, hit = 3, f'流年{lz}动{nm}{z}', True
+            if not hit and (sl in yin or sl == '偏财'):
+                best = max(best, 2); note = note or f'流年透{sl}(父母星)'
+
+        total += best
+        if used_time:
+            time_contributed = True
+        details.append((yr, dom, gz, best, note))
+    return total, details, time_contributed
+
+
+def run_verify_events(day_gz, year_gz, month_gz, is_male, raw_events, hour_filter):
+    """时辰反推主流程：枚举候选时柱，按确认事件应期对齐分排名，打印结果。"""
+    # 解析事件
+    events = []
+    for chunk in raw_events.replace('，', ',').split(','):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        sep = '：' if '：' in chunk else (':' if ':' in chunk else None)
+        if sep is None:
+            print(f"⚠️ 格式无法识别（缺冒号）：{chunk}（已跳过）")
+            continue
+        yr_s, dom_s = chunk.split(sep, 1)
+        try:
+            yr = int(yr_s.strip())
+        except ValueError:
+            print(f"⚠️ 年份无法识别：{yr_s.strip()}（已跳过）")
+            continue
+        dom = normalize_domain(dom_s.strip())
+        if dom is None:
+            print(f"⚠️ 面向无法识别：{dom_s.strip()}（已跳过）。支持：婚姻/事业/财/学业/健康/搬迁/子女/家庭")
+            continue
+        events.append((yr, dom, dom_s.strip()))
+
+    if not events:
+        print("错误：没有可用的确认事件。格式示例：--verify-events \"2003:学业,2009:婚恋,2015:子女\"")
+        return
+
+    events_for_score = [(yr, dom) for yr, dom, _ in events]
+    day_gan = day_gz[0]
+    all_cands = hour_pillar_candidates(day_gan)
+    if hour_filter:
+        wanted = set(c.strip() for c in hour_filter.replace('，', ',').split(','))
+        cands = [c for c in all_cands if c[1] in wanted] or all_cands
+    else:
+        cands = all_cands
+
+    scored = []
+    for cand in cands:
+        total, details, time_used = score_events(day_gz, year_gz, month_gz, cand, is_male, events_for_score)
+        scored.append({'gz': cand, 'total': total, 'details': details, 'time_used': time_used})
+    scored.sort(key=lambda x: x['total'], reverse=True)
+
+    # 是否有任何候选靠时支区分（即证据里有子女/晚年类、且确实命中时支）
+    any_time_discriminate = any(s['time_used'] for s in scored)
+    time_sensitive_events = [e for e in events if e[1] in _TIME_SENSITIVE_DOMAINS]
+
+    print("# 时辰反推结果\n")
+    print("**原理**：每个候选时柱在命主确认的事件年是否产生对应面向的应期信号，对得越齐越可能是真时辰。")
+    print("打分对应 `references/blind_imagery.md` 的信号↔面向反查表。\n")
+    print(f"- 固定日柱：**{day_gz}**（假设出生日期可靠，仅时辰待定）")
+    print(f"- 年/月柱：{year_gz} / {month_gz}　性别：{'男' if is_male else '女'}")
+    print("- 确认事件：" + "，".join(f"{yr}{_DOMAIN_NAMES[dom]}({raw})" for yr, dom, raw in events))
+    print()
+
+    print("| 排名 | 候选时柱 | 时支 | 对齐分 | 时支是否参与定时 |")
+    print("|---|---|---|---|---|")
+    for i, s in enumerate(scored, 1):
+        mark = '✓' if s['time_used'] else '—'
+        print(f"| {i} | **{s['gz']}** | {s['gz'][1]} | {s['total']} | {mark} |")
+    print()
+
+    top = scored[0]
+    tie = [s for s in scored if s['total'] == top['total']]
+    print("## 最佳候选明细\n")
+    if len(tie) > 1:
+        print(f"⚠️ **{len(tie)} 个候选并列最高分（{top['total']}）**：{'、'.join(s['gz'] for s in tie)}——这批证据无法唯一确定时辰，需补充更多事件。\n")
+    print(f"**{top['gz']}** 的逐事件命中：\n")
+    print("| 事件年 | 面向 | 流年 | 得分 | 命中信号 |")
+    print("|---|---|---|---|---|")
+    for yr, dom, gz, best, note in top['details']:
+        note_disp = note if note else ('弱信号（仅十神倾向）' if best > 0 else '（未对上）')
+        print(f"| {yr} | {_DOMAIN_NAMES[dom]} | {gz} | {best} | {note_disp} |")
+    print()
+
+    # 区分力提示
+    print("## ⚠️ 区分力提示\n")
+    if not time_sensitive_events:
+        print("- **本批证据对定时辰的区分力弱**：所列事件多落在日支（婚姻/健康）或年月支（事业/家庭），"
+              "而日支、年月支**不随时辰改变**——它们能验证整盘大方向，但无法单独定时辰。")
+        print("- **强烈建议补充子女类、晚年/事业归宿类事件**（如子女出生年份）：时支随时辰变化，"
+              "这类事件才能真正区分相邻时辰。重跑：`--verify-events \"...,YYYY:子女\"`")
+    elif not any_time_discriminate:
+        print("- 提供了子女/晚年类事件，但在所有候选时柱下都未命中时支应期——可能事件年记忆有偏差，或日柱/年月柱本身需要复核。")
+    else:
+        print("- 本批证据包含时支敏感事件且有候选靠时支命中，定时辰区分力较好。")
+    print("- 分数接近的候选都应保留为候选时柱，结合命主对盘的体感（性格、长相、六亲）综合判断，不要只看分数。")
+    print("- 时辰定下后，把结论写入命主档案（见 output_structure.md「命主档案」节），后续分析按此时辰展开。")
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description='八字排盘 — 输入出生信息，输出 markdown 格式的排盘结果',
@@ -234,6 +491,13 @@ def parse_args():
                         help='出生城市（中文），如"岳阳"。不在内置表中时仅应用均时差')
     parser.add_argument('--longitude', type=float, default=None,
                         help='出生地经度（度），优先级高于 --location')
+    parser.add_argument('--verify-events', default=None,
+                        help='时辰反推模式：传入命主确认的过往事件，格式 "年:面向,年:面向"，'
+                             '如 "2003:学业,2009:婚恋,2015:子女"。'
+                             '面向支持 婚姻/事业/财/学业/健康/搬迁/子女/家庭。'
+                             '脚本会枚举候选时柱，按应期对齐分排名。')
+    parser.add_argument('--hour-candidates', default=None,
+                        help='配合 --verify-events：限定候选时支范围，如 "寅,卯"。不传则评估全部 12 时辰。')
     return parser.parse_args()
 
 
@@ -313,6 +577,11 @@ def main():
     is_yang = year_gan in YANG_GAN
     is_male = gender == '男'
     direction = '顺行' if (is_yang and is_male) or (not is_yang and not is_male) else '逆行'
+
+    # ============ 时辰反推模式（早退出，不走常规排盘输出）============
+    if args.verify_events:
+        run_verify_events(day_gz, year_gz, month_gz, is_male, args.verify_events, args.hour_candidates)
+        return
 
     # ============ 大运排布 ============
     # lunar_python 约定：getYun(1) 为男命，getYun(0) 为女命
@@ -862,11 +1131,12 @@ def main():
     print("- ⚠️ S复核 官杀透干：盲派\"用\"进来——七杀重 / 正官轻；附带制化判定（有食伤制 or 印化 = 降档）")
     print("- ⚡ 岁运并临：流年干支=大运干支。B+ 单纯并临 / A 原局有同字 / A+ 整柱三叠（日柱三叠必须人工复核）")
     print("- 💰 P-财事：财星透干独立标签（盲派属\"用\"但应在财务/资源/男命妻星）")
-    print("- 🔴 A级 高危：配偶星或夫妻宫被严重冲克（闭环未完整）")
-    print("- 🟠 B级 警示：有动象，但未形成完整风险闭环")
-    print("- 🟡 C级 辅助：可辅助解释，不单独定吉凶（七杀被合、流年合大运干等多在此档）")
-    print("- 🔵 D级 背景：只作参考，不作判断依据")
-    print("- 关键信号是基于'星宫势动'框架和五行作用自动识别，仅作初判")
+    print("- 🔴 A级 单项强触动：配偶星或夫妻宫被冲克（结构未完整闭环）")
+    print("- 🟠 B级 有动象：动象存在，但未形成完整结构")
+    print("- 🟡 C级 辅助：可辅助解释，不单独定性（七杀被合、流年合大运干等多在此档）")
+    print("- 🔵 D级 背景：只作参考")
+    print("- ⚠️ 档位是强度提示（值得优先看），不是吉凶定性、更不是危机预警；性质正负由所在大运和经营决定")
+    print("- 档位为未标定的启发式阈值，靠命主反馈校准（见 methodology 元规则三）；关键信号仅作初判")
     print("- 大运 vs 原局的作用在每个大运首年标注（其他年份相同）")
     print()
     print("| 年份 | 岁 | 流年 | 所在大运 | 流年 vs 原局作用 | 关键信号 |")
@@ -890,16 +1160,17 @@ def main():
     s_rows = [r for r in liunian_table if any('🔥' in s for s in r['signals'])]
     p_rows = [r for r in liunian_table if any('✨' in s for s in r['signals'])]
 
-    print("## 🔥 S 级年份汇总（外触型 · 强能量节点 · 多面向应事）")
+    print("## 🔥 S 级年份汇总（外触型 · 强能量节点）")
     print()
-    print("**关键说明**：")
+    print("**关键说明（请如实理解，勿夸大）：**")
     print()
     print("- **S 级 = 外触型**。能量来源在原局之外——流年/大运的字对原局形成剋、冲、合。主体感受是\"**事情找上门来，我得应对**\"。")
-    print("- **S 级 ≠ 危机预警**。信号可正可负，取决于命主当时所在大运的能量场和经营状态——")
-    print("  - 印运+S 级 → 倾向\"被托起、获得机会、关系建立\"（如升学、贵人、感情）")
-    print("  - 七杀运+S 级 → 倾向\"被外部倒逼、合伙重组、责任承担\"")
-    print("- **应事面向多元**：脚本判定逻辑虽以\"配偶星损 + 夫妻宫动\"命名，**实际应事面向远不止婚姻**——可能是合伙关系、客户/资源、朋友间财务、健康/根基、搬家/生活方式重大调整、自我认知调整、家庭事件等，通常 3-5 个面向同时被触发。")
-    print("- **底层判定结构**：比劫剋财 + 配偶星损 + 日支动 三条同时成立")
+    print("- **S 级 ≠ 危机预警**。信号可正可负，取决于命主当时所在大运的能量场和经营状态。")
+    print("- **底层判定结构是单一的：比劫剋财 + 财弱 + 夫妻宫动**（女命为伤官见官/夫星被合 + 夫妻宫动）。")
+    print("  即检测器本质识别的是\"**财与亲密关系的双重触动**\"这一种结构，**不是一个多面向探测器**。")
+    print("- **具体应在哪个面向（婚恋/合伙/客户/朋友财务/健康/搬迁/家庭…）脚本无法判定**——")
+    print("  同一个结构在不同人、不同大运上会落在不同面向。**面向必须由命主反馈收敛确定，不能由脚本或年龄段臆测。**")
+    print("- 下表「候选应事面向」仅按年龄段列出**待命主验证的可能方向**，是反馈收敛的起点，不是预测结论。")
     print()
     def life_stage_facets(age_n):
         """根据年龄段返回该 S 级年份最有可能的多面向应事提示。"""
@@ -922,7 +1193,7 @@ def main():
     if not s_rows:
         print("（本盘从起运到 80 岁无 S 级年份）")
     else:
-        print("| 年份 | 岁 | 多面向应事提示（按年龄段） | 流年 | 大运 |")
+        print("| 年份 | 岁 | 候选应事面向（待命主反馈收敛，非预测） | 流年 | 大运 |")
         print("|---|---|---|---|---|")
         for row in s_rows:
             y = row['year']
@@ -934,12 +1205,13 @@ def main():
         print(f"**统计**：过往 S 级年份 {len(past_s)} 个 / 未来 S 级年份 {len(future_s)} 个")
         print()
         print("**说明**：")
-        print("- \"多面向应事提示\"是基于命主该年所处年龄段给出的典型应事方向，并非预测——")
-        print("  S 级年份的能量结构在不同生命阶段会优先表现在不同面向上。")
-        print("- 触发结构对所有 S 级都是\"比劫剋财 + 财弱 + 夫妻宫动\"三条同时成立，不区分年份，故省略。")
+        print("- 「候选应事面向」是按年龄段列出的**典型方向候选**，不是预测——所有 S 级触发结构相同"
+              "（比劫剋财 + 财弱 + 夫妻宫动），脚本无法判定具体落在哪个面向。")
+        print("- **正确用法**：拿过往 S 级年份与命主真实经历逐个对照，确认每年实际应在了哪个面向，"
+              "写入命主档案的「信号→面向图谱」。这就是反馈收敛——收敛后才知道这个人的 S 级倾向应在何处。")
         print()
-        print("**校准建议**：拿过往 S 级年份与命主对照——是否对应\"强度大、变化大、触动大\"的事件（不限面向）。")
-        print("命中率高 → 算法对此盘适用度高；命中率低 → 核对时辰精度。")
+        print("**校准与定时辰**：过往 S 级命中率高 → 算法对此盘适用度高；命中率低 → 优先怀疑时辰，"
+              "用 `--verify-events` 反推（注意：婚姻类事件对定时辰无区分力，需配合子女/晚年类事件）。")
 
     # ---- P 级年份汇总表 ----
     print()
@@ -965,7 +1237,7 @@ def main():
     if not p_rows:
         print("（本盘从起运到 80 岁无 P 级年份）")
     else:
-        print("| 年份 | 岁 | 多面向应事提示（按年龄段） | 流年 | 大运 |")
+        print("| 年份 | 岁 | 候选应事面向（待命主反馈收敛，非预测） | 流年 | 大运 |")
         print("|---|---|---|---|---|")
         for row in p_rows:
             facets = life_stage_facets(row['age'])
