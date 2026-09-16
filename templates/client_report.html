@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>命盘分析</title>
+<!--
+  命主版 PDF 模板（给命主本人读）
+  用法：复制本文件 → 命主档案/{标识}_命盘分析_命主版.html → 替换全部 {{占位符}} → python scripts/render_pdf.py 该文件
+  写法规则（章节映射、术语翻译、必须删掉的内容、分页修正）见 references/client_pdf.md
+  样式区不要改；需要的组件在正文里都有示范，按需复制。
+-->
+<style>
+@page { size: A4; margin: 17mm 18mm 16mm 18mm; }
+* { box-sizing: border-box; }
+body {
+  font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", sans-serif;
+  color: #23201c; font-size: 10pt; line-height: 1.68;
+  margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact;
+}
+p { margin: 0 0 0.7em 0; text-align: justify; }
+
+.cover { height: 258mm; display: flex; flex-direction: column; justify-content: center;
+         align-items: center; text-align: center; page-break-after: always; position: relative; }
+.cover .mark { font-size: 24pt; letter-spacing: 0.5em; color: #a8743a; margin-bottom: 14mm; text-indent: 0.5em; }
+.cover h1 { font-size: 30pt; font-weight: 400; letter-spacing: 0.35em; margin: 0 0 6mm 0;
+            color: #23201c; text-indent: 0.35em; }
+.cover .sub { font-size: 11pt; color: #7d746a; letter-spacing: 0.2em; margin-bottom: 16mm; }
+.cover .pillars { display: flex; gap: 9mm; margin-bottom: 12mm; }
+.cover .pillars div { font-size: 19pt; letter-spacing: 0.15em; color: #23201c;
+                      border-top: 1.5px solid #c9a878; border-bottom: 1.5px solid #c9a878; padding: 4mm 3mm; }
+.cover .meta { font-size: 10pt; color: #7d746a; line-height: 2.1; }
+.cover .foot { position: absolute; bottom: 10mm; font-size: 8.5pt; color: #a39a90; letter-spacing: 0.1em; }
+
+h2 { font-size: 15pt; font-weight: 600; color: #23201c; margin: 0 0 5mm 0; padding-bottom: 2.5mm;
+     border-bottom: 2px solid #c9a878; letter-spacing: 0.06em; page-break-after: avoid; }
+h2 .num { color: #a8743a; font-weight: 400; margin-right: 3mm; }
+h3 { font-size: 11pt; font-weight: 600; color: #6b4a22; margin: 5mm 0 2mm 0;
+     letter-spacing: 0.04em; page-break-after: avoid; }
+section { page-break-before: always; }
+section.cont { page-break-before: auto; }
+.newpage { page-break-before: always; margin-top: 0; }
+
+table { width: 100%; border-collapse: collapse; margin: 3mm 0 5mm 0; font-size: 9.5pt;
+        page-break-inside: avoid; }
+th { background: #f2ece3; color: #5b4a35; font-weight: 600; padding: 2.2mm 2.5mm;
+     border: 1px solid #ddd2c2; text-align: left; }
+td { padding: 2.2mm 2.5mm; border: 1px solid #e6ddd0; vertical-align: top; line-height: 1.6; }
+tr:nth-child(even) td { background: #faf7f2; }
+td.c, th.c { text-align: center; }
+.big td { font-size: 12pt; text-align: center; letter-spacing: 0.1em; padding: 3mm 2mm; }
+.cur td { background: #fdf3e3 !important; }
+.past td { color: #8b8279; }
+
+.note { background: #f7f3ec; border-left: 3px solid #c9a878; padding: 3.5mm 4.5mm;
+        margin: 4mm 0; font-size: 9.5pt; color: #5b5248; line-height: 1.8; page-break-inside: avoid; }
+.lead { font-size: 10.5pt; color: #6b4a22; line-height: 1.75; margin-bottom: 4mm; }
+.wuxing { display: flex; gap: 4mm; margin: 3mm 0 5mm 0; }
+.wuxing div { flex: 1; text-align: center; border: 1px solid #e6ddd0; padding: 3mm 1mm; background: #faf7f2; }
+.wuxing .n { font-size: 15pt; color: #a8743a; display: block; line-height: 1.3; }
+.wuxing .l { font-size: 9pt; color: #7d746a; }
+.zero { color: #b8b0a6 !important; }
+ul { margin: 0 0 0.9em 0; padding-left: 5mm; }
+li { margin-bottom: 0.4em; line-height: 1.8; }
+.tag { display: inline-block; background: #eee6d8; color: #6b4a22; font-size: 8.5pt;
+       padding: 0.5mm 2mm; border-radius: 2px; margin-right: 2mm; letter-spacing: 0.05em; }
+.end { margin-top: 8mm; padding-top: 5mm; border-top: 1px solid #e0d6c6;
+       font-size: 9pt; color: #8b8279; line-height: 1.9; }
+.narrative p { text-indent: 2em; margin-bottom: 0.7em; }
+.small { font-size: 9pt; color: #7d746a; }
+</style>
+</head>
+<body>
+
+<!-- ============ 封面 ============ -->
+<div class="cover">
+  <div class="mark">命</div>
+  <h1>命盘分析</h1>
+  <div class="sub">{{年柱}}年 · {{男/女}}命</div>
+  <div class="pillars"><div>{{年柱}}</div><div>{{月柱}}</div><div>{{日柱}}</div><div>{{时柱}}</div></div>
+  <div class="meta">
+    公历 {{YYYY}} 年 {{M}} 月 {{D}} 日 {{凌晨/上午/下午/晚上}} {{H:MM}}{{（农历X月X日，命主给的是农历时才写）}}<br>
+    {{省市}} · {{男/女}}<br>
+    真太阳时 {{H:MM}} · {{X}}时
+  </div>
+  <div class="foot">本报告基于八字排盘，用于自我认识与节奏参考</div>
+</div>
+
+<!-- ============ 一 你的命盘（紧跟封面，不另起页用 cont） ============ -->
+<section class="cont">
+<h2><span class="num">一</span>你的命盘</h2>
+
+<table class="big">
+<tr><th class="c">年柱</th><th class="c">月柱</th><th class="c">日柱</th><th class="c">时柱</th></tr>
+<tr><td>{{年柱}}</td><td>{{月柱}}</td><td><strong>{{日柱}}</strong></td><td>{{时柱}}</td></tr>
+<tr><td class="small">祖辈 · 早年</td><td class="small">父母 · 青年 · 事业起步</td><td class="small">你自己 · 配偶 · 中年</td><td class="small">子女 · 晚年 · 事业归宿</td></tr>
+</table>
+
+<!-- 日主 + 生月一句话定调：这个盘理解的起点是什么（身强/身弱翻成"自身能量"的说法，不用术语） -->
+<p>日主是<strong>{{日干五行，如 丁火}}</strong>，生在{{X}}月，{{季节与寒暖燥湿}}。这是理解你整个盘的起点：<strong>{{一句话定调}}</strong>。{{补一句这个盘的主心骨}}</p>
+
+<h3>五行分布</h3>
+<!-- 数字取脚本「五行分布（明字统计）」；为 0 的在 .n 上加 zero 类 -->
+<div class="wuxing">
+  <div><span class="n">{{木}}</span><span class="l">木</span></div>
+  <div><span class="n">{{火}}</span><span class="l">火</span></div>
+  <div><span class="n">{{土}}</span><span class="l">土</span></div>
+  <div><span class="n">{{金}}</span><span class="l">金</span></div>
+  <div><span class="n">{{水}}</span><span class="l">水</span></div>
+</div>
+<p>{{哪行多、哪行少，「X」是你的底色；明面缺的要先扫暗引，不真缺就说"另有力量补上"}}</p>
+
+<h3>大运（每十年一步，{{顺行/逆行}}）</h3>
+<!-- 岁数 = 年份 − 出生年（与流年表一致）；当前大运行加 class="cur" 并加粗；列到约 65 岁即可 -->
+<table>
+<tr><th class="c">岁数</th><th class="c">年份</th><th class="c">干支</th><th>这一步的性质</th></tr>
+<tr><td class="c">{{a–b}}</td><td class="c">{{YYYY–YYYY}}</td><td class="c">{{干支}}</td><td>{{一句话性质}}</td></tr>
+<tr class="cur"><td class="c"><strong>{{a–b}}</strong></td><td class="c"><strong>{{YYYY–YYYY}}</strong></td><td class="c"><strong>{{干支}}</strong></td><td><strong>← 你正在走 · {{这十年的主题}}</strong></td></tr>
+<tr><td class="c">{{a–b}}</td><td class="c">{{YYYY–YYYY}}</td><td class="c">{{干支}}</td><td>下一步 · {{一句话}}</td></tr>
+</table>
+
+<div class="note">
+<strong>关于时辰</strong>：北京时间 {{H:MM}}，按{{出生地}}的经度换算成真太阳时是 {{H:MM}}，落在<strong>{{X}}时</strong>，距离前后两个时辰的分界还有 {{N}} 分钟和 {{N}} 分钟——{{时辰确定 / 靠近边界需核对（给出候选）}}。<br>
+<strong>关于岁数</strong>：文中的岁数按「年份减 {{出生年}}」计算。{{生日在年底时补：一年里大部分时间实际周岁要少一岁。}}每步大运的实际交接，在表中起始那一年的 {{M}} 月{{上/中/下}}旬前后。
+</div>
+</section>
+
+<!-- ============ 二 你是什么样的人（来源：人格画像，写成 5 条倾向） ============ -->
+<section>
+<h2><span class="num">二</span>你是什么样的人</h2>
+<div class="lead">下面五条是这个盘上最稳定的几个特征。它们说的不是你某一年会怎样，而是你一贯的反应方式——你可以拿自己过去的经历直接去对。</div>
+
+<!-- 每条：h3 = 一句可验证的倾向；第一段 = 盘上结构的白话翻译 + 日常表现；第二段 = 另一面 / 代价。重复 5 次 -->
+<h3>一、{{倾向标题}}</h3>
+<p>{{结构翻译 + 日常表现，关键句用 strong}}</p>
+<p>{{另一面 / 代价}}</p>
+
+<h3>二、{{倾向标题}}</h3>
+<p>{{…}}</p>
+<p>{{…}}</p>
+</section>
+
+<!-- ============ 三 几个具体面向（来源：第三节各面向的通俗表达） ============ -->
+<section>
+<h2><span class="num">三</span>几个具体面向</h2>
+
+<h3>事业与工作</h3>
+<p>{{适合什么}}</p>
+<p>{{不太适合什么 + 一句提醒}}</p>
+
+<h3>钱财</h3>
+<p>{{钱怎么来}}</p>
+<p>{{要留意的漏点}}</p>
+
+<h3>感情与亲密关系</h3>
+<p>{{关系模式}}</p>
+
+<h3>子女</h3>
+<p>{{缘分形态 + 相处方式；不预设必须生育}}</p>
+
+<h3>身体</h3>
+<p>{{要留意的系统 + 透支方式 + 可执行的做法}}</p>
+
+<h3>人际与贵人</h3>
+<p>{{贵人类型，不看方位生肖}}</p>
+</section>
+
+<!-- ============ 四 专题（可选）：命理师追问过的专项，如感情建议、偏财。没有就整节删掉，后面章节编号顺延 ============ -->
+<section>
+<h2><span class="num">四</span>{{专题标题，如 感情与额外财运：给你的具体建议}}</h2>
+<div class="lead">{{这一节回答你关心的哪几件事}}</div>
+
+<h3>{{专题一}}</h3>
+<p>{{总述：窗口/倾向，不报事件点}}</p>
+<ul>
+<li><strong>{{建议标题}}</strong>{{展开}}</li>
+<li><strong>{{建议标题}}</strong>{{展开}}</li>
+</ul>
+<table>
+<tr><th style="width:22%">时段</th><th style="width:42%">这段时间的特点</th><th>可以怎么做</th></tr>
+<tr><td><strong>{{时段}}</strong></td><td>{{特点；S 级面向未收敛时写"如果这股力量落在X上"}}</td><td>{{做法}}</td></tr>
+</table>
+
+<!-- 第二个专题放不下时整块另起一页：给 h3 加 class="newpage" -->
+<h3 class="newpage">{{专题二}}</h3>
+<p>{{…}}</p>
+<table>
+<tr><th style="width:18%">阶段</th><th style="width:44%">{{…的样子}}</th><th>建议</th></tr>
+<tr class="cur"><td><strong>{{现在 – X 岁前后}}</strong></td><td>{{…}}</td><td>{{…}}</td></tr>
+<tr><td><strong>{{X–Y 岁}}</strong></td><td>{{…}}</td><td>{{…}}</td></tr>
+</table>
+</section>
+
+<!-- ============ 五 你正在走的这十年（来源：第四节） ============ -->
+<section>
+<h2><span class="num">五</span>你正在走的这十年（{{a–b}} 岁）</h2>
+<div class="lead">{{干支}}运 · {{YYYY–YYYY}} · {{已走 N 年，实际交接时间}}</div>
+
+<h3>这十年的主题：{{主题}}</h3>
+<p>{{十年通俗层}}</p>
+<ul>
+<li><strong>{{面向}}</strong>：{{拉扯/机会}}</li>
+</ul>
+
+<h3>这个阶段的贵人是什么样的人</h3>
+<p>{{贵人类型 + 比劫真假对应的合作方式}}</p>
+
+<h3>这个阶段要留意的消耗</h3>
+<!-- tag 用一个字：钱/事/身/言/情/比 等 -->
+<ul>
+<li><span class="tag">{{字}}</span>{{消耗模式}}</li>
+<li><span class="tag">{{字}}</span>{{消耗模式}}</li>
+</ul>
+</section>
+
+<!-- ============ 六 下一个十年（来源：第五节） ============ -->
+<section>
+<h2><span class="num">六</span>下一个十年（{{a–b}} 岁）</h2>
+<div class="lead">{{干支}}运 · {{YYYY–YYYY}}</div>
+
+<h3>{{方向变化的一句话标题}}</h3>
+<p>{{与当前大运对比}}</p>
+<ul>
+<li><strong>{{变化}}</strong>{{展开}}</li>
+</ul>
+
+<h3>在剩下这一两年里可以先做的事</h3>
+<ul>
+<li><strong>{{准备事项}}</strong>{{展开}}</li>
+</ul>
+</section>
+
+<!-- ============ 七 整体画像与人生主线（来源：第六节原文，按段放入，不加小标题、不出现公历年份） ============ -->
+<section>
+<h2><span class="num">七</span>整体画像与人生主线</h2>
+<div class="narrative">
+<p>{{第六节第一段}}</p>
+<p>{{……每个面向一段，承接句开头}}</p>
+<p>{{收尾一句}}</p>
+</div>
+</section>
+
+<!-- ============ 八 强能量年份（来源：第七节 S/P 表） ============ -->
+<section>
+<h2><span class="num">八</span>你这一生的强能量年份</h2>
+
+<p>命盘里有两种「强能量节点」，性质完全不同：</p>
+<ul>
+<li><strong>外触型</strong>：能量来源在你之外，感受是「事情找上门来，我得回应」。</li>
+<li><strong>内驱型</strong>：能量来源在你自身，感受是「我想这么干，我感觉到自己的力量」。</li>
+</ul>
+<div class="note">
+<strong>这两种都不是「危险年份」的意思。</strong>它们标记的是「强度大、触动大、变化大」的年份——往好的方向走还是往难的方向走，取决于你当时在做什么、经营得怎么样。这张表是节奏图，不是预警表。
+</div>
+
+<!-- 数量为 0 时写"一个都没有"并解释这本身说明什么；过往年份行加 class="past"，最近的未来年份行可加 class="cur" -->
+<h3>外触型：{{数量与分布，如 一个，在 2027 年}}</h3>
+<table>
+<tr><th class="c" style="width:12%">年份</th><th class="c" style="width:10%">岁数</th><th>可能落在哪些面向（有待你自己日后印证）</th></tr>
+<tr><td class="c"><strong>{{YYYY}}</strong></td><td class="c">{{岁}}</td><td>{{面向 / 面向 / 面向}}</td></tr>
+</table>
+
+<h3>内驱型：{{数量与分布}}</h3>
+<table>
+<tr><th class="c" style="width:12%">年份</th><th class="c" style="width:10%">岁数</th><th>可能落在哪些面向</th></tr>
+<tr class="past"><td class="c"><strong>{{YYYY}}</strong></td><td class="c">{{岁}}</td><td>已经过去——{{面向}}（请在第十节帮忙核对）</td></tr>
+<tr><td class="c"><strong>{{YYYY}}</strong></td><td class="c">{{岁}}</td><td>{{面向}}</td></tr>
+</table>
+
+<h3>这张图说明什么</h3>
+<p>{{节点的密度、分布、与换运的关系}}</p>
+<p>对未来这几个年份，说法是「值得提前经营的窗口」，不是「要小心的年份」：</p>
+<ul>
+<li><strong>{{YYYY 年之前 / 前后}}</strong>：{{主动经营方向}}</li>
+</ul>
+<p>理解这个节奏，比等待某个具体年份有用得多——<strong>节奏是稳定的，事件是开放的，由你怎么经营决定。</strong></p>
+</section>
+
+<!-- ============ 九 今年（来源：第八节） ============ -->
+<section>
+<h2><span class="num">九</span>今年：{{YYYY}} {{流年干支}}</h2>
+<div class="lead">{{岁}} 岁 · 当前这步运的第{{N}}年</div>
+
+<h3>今年的基调</h3>
+<p>{{流年性质 × 命局需要什么 → 今年是什么类型的一年}}</p>
+
+<h3>今年的几股力量</h3>
+<!-- 左列不用术语：把"午冲子/丑午害"翻成"代表工作环境的那一格被冲""婚姻那一格被暗暗穿了一下"；取自脚本流年表当年那行 -->
+<table>
+<tr><th style="width:34%">命盘上发生了什么</th><th>翻成生活里是什么意思</th></tr>
+<tr><td>{{白话结构}}</td><td>{{生活含义}}</td></tr>
+</table>
+<p><strong>整体特征：{{一句话}}</strong></p>
+
+<h3>事业与工作</h3>
+<p>{{…}}</p>
+
+<h3>钱财</h3>
+<p>{{…}}</p>
+
+<h3>感情与关系</h3>
+<p>{{按档案已收敛的状态写，如已婚/未婚有伴侣/单身}}</p>
+
+<h3>身体</h3>
+<p>{{…}}</p>
+
+<h3>全年节奏</h3>
+<div class="note" style="margin-top:0">以下的「月」指<strong>节气月</strong>（以节令为分界，不是农历月也不是公历月），已标出公历日期；灰色为已经过去的时段。</div>
+<!-- 起止时刻与每条建议都取自脚本"节气月表"，没有表依据的月份不写结论；已过去的时段加 class="past"，可合并成一行"回看"；当前时段加 class="cur" -->
+<table>
+<tr><th class="c" style="width:14%">时段</th><th style="width:18%">节气（公历）</th><th class="c" style="width:12%">关键词</th><th>建议</th></tr>
+<tr class="past"><td class="c">{{季}}<br><span class="small">已过</span></td><td>{{节气–节气}}<br>约 {{M/D – M/D}}</td><td class="c">回看</td><td>{{回头对照的问题}}</td></tr>
+<tr class="cur"><td class="c"><strong>现在</strong></td><td>{{节气–节气}}<br>约 {{M/D – M/D}}</td><td class="c"><strong>{{关键词}}</strong></td><td>{{可执行建议}}</td></tr>
+<tr><td class="c"><strong>{{时段}}</strong></td><td>{{节气–节气}}<br>约 {{M/D – M/D}}</td><td class="c">{{关键词}}</td><td>{{可执行建议}}</td></tr>
+</table>
+
+<h3>今年小结</h3>
+<p>{{今年性质}}</p>
+<p>{{最值得发力 + 最值得留意 + 一句收尾}}</p>
+</section>
+
+<!-- ============ 十 请你核对（来源：过往可验证判断汇总；这是反馈收敛的入口） ============ -->
+<section>
+<h2><span class="num">十</span>有几件事，想请你核对一下</h2>
+<p>下面这些是<strong>根据你的盘推出来的、关于过去的判断</strong>。一个盘常常有两三种都说得通的读法，光靠推演分不出哪一种对，<strong>你过去真实发生了什么，是唯一能分辨的依据</strong>——你只要回答「对」或「不对」，后面的解读就能更贴近你。</p>
+
+<!-- 8–12 行，按时间排序；子女类事件优先放进来（目前唯一能帮着定时辰的事件）；最后可加一行"关于现在"的开放问题 -->
+<table>
+<tr><th class="c" style="width:22%">时间</th><th>推出来的判断</th></tr>
+<tr><td class="c"><strong>{{YYYY 年 / a–b 岁}}</strong></td><td>{{可验证的判断，关键词 strong}}</td></tr>
+</table>
+
+<p>如果大部分对得上，说明这个盘的读法方向是对的，关于节奏和窗口的判断可以照着用。如果对不上的比较多，说明需要换一种读法——这同样是有价值的信息，照实说就好。</p>
+
+<div class="end">
+<strong>关于这份分析怎么用</strong><br>
+这份分析里最可靠的部分，是关于<strong>你是什么样的人、你会怎么反应</strong>的判断——它们是稳定的，可以拿过去的经历去对，也可以在做决定时参考。<br>
+关于时间的部分，给的是<strong>窗口和节奏</strong>，不是某年某月会发生什么具体的事。八字能说清楚的，是「哪段时间什么力量强、适合做什么」；说不准、也不该说「某年你一定会怎样」。<br>
+命盘描述的是倾向和结构，不是结论。真正决定结果的，始终是你在每个窗口里做了什么。
+</div>
+</section>
+
+</body>
+</html>
