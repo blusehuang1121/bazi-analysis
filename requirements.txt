@@ -1,0 +1,6 @@
+# bazi-analysis 依赖（已验证版本；脚本不自动安装）
+lunar_python==1.4.8
+
+# 可选：命主版 PDF 的分页检查与预览图（scripts/render_pdf.py）
+# pypdfium2==5.7.0
+# Pillow==11.2.1
