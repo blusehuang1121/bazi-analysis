@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 # Windows 终端默认 GBK，强制 UTF-8 输出（同 bazi_chart.py）；sys.exit 的报错走 stderr，也要一起改
@@ -66,7 +67,18 @@ def check_placeholders(html_path):
     return sorted(set(re.findall(r'\{\{[^{}]{0,40}\}\}', text)))
 
 
-def print_to_pdf(browser, html_path, pdf_path):
+def _pdf_signature(pdf_path):
+    p = Path(pdf_path)
+    if not p.exists():
+        return None
+    st = p.stat()
+    return (st.st_mtime_ns, st.st_size)
+
+
+def print_to_pdf(browser, html_path, pdf_path, wait_seconds=90):
+    # Edge 的启动器可能在 PDF 真正写完之前就退出：必须等到"比打印前新、且大小稳定"的文件，
+    # 否则会读到上一次的旧 PDF（分页检查和预览全是旧内容）或误报没生成
+    before = _pdf_signature(pdf_path)
     user_data = tempfile.mkdtemp(prefix='bazi_pdf_')
     try:
         cmd = [
@@ -77,10 +89,18 @@ def print_to_pdf(browser, html_path, pdf_path):
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8',
                                 errors='replace', timeout=180)
+        deadline = time.monotonic() + wait_seconds
+        last = None
+        while time.monotonic() < deadline:
+            sig = _pdf_signature(pdf_path)
+            if sig and sig != before and sig[1] > 0:
+                if sig == last:
+                    return
+                last = sig
+            time.sleep(1)
     finally:
         shutil.rmtree(user_data, ignore_errors=True)
-    if not Path(pdf_path).exists() or Path(pdf_path).stat().st_size == 0:
-        sys.exit(f'错误：浏览器没有生成 PDF。\n{result.stderr[-1500:]}')
+    sys.exit(f'错误：浏览器没有生成新的 PDF（等待 {wait_seconds} 秒）。\n{result.stderr[-1500:]}')
 
 
 def page_texts(pdf_path):
